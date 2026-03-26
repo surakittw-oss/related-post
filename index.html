@@ -401,8 +401,6 @@
 </div>
 
 <script>
-const CORS_PROXY = 'https://api.allorigins.win/get?url=';
-
 let generatedHTML = '';
 let items = [];
 
@@ -415,42 +413,9 @@ function getUrls() {
 
 async function fetchMeta(url) {
   try {
-    const res = await fetch(CORS_PROXY + encodeURIComponent(url));
-    const json = await res.json();
-    const html = json.contents || '';
-
-    const getMeta = (prop) => {
-      const patterns = [
-        new RegExp(`<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i'),
-        new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${prop}["']`, 'i'),
-      ];
-      for (const p of patterns) {
-        const m = html.match(p);
-        if (m) return m[1];
-      }
-      return '';
-    };
-
-    let title = getMeta('og:title') || html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || url;
-    title = title.replace(/&amp;/g, '&').replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
-
-    const thumbnail = getMeta('og:image') || '';
-
-    // วันที่
-    let date = '', time = '';
-    const pubRaw = getMeta('article:published_time') || getMeta('og:article:published_time') ||
-      html.match(/"datePublished"\s*:\s*"([^"]+)"/i)?.[1] || '';
-
-    if (pubRaw) {
-      const d = new Date(pubRaw);
-      if (!isNaN(d)) {
-        const months = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-        date = `${d.getDate()} ${months[d.getMonth()+1]} ${d.getFullYear()+543}`;
-        time = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
-      }
-    }
-
-    return { url, title, thumbnail, date, time, ok: true };
+    const res  = await fetch(`/api/fetch-meta?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    return data;
   } catch(e) {
     return { url, title: url, thumbnail: '', date: '', time: '', ok: false };
   }
