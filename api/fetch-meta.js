@@ -2,39 +2,45 @@ const puppeteer = require('puppeteer-core');
 const chromium  = require('@sparticuz/chromium');
 
 module.exports = async function handler(req, res) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const { url } = req.query;
-  if (!url) return res.status(400).json({ error: 'Missing url parameter' });
+  if (!url) return res.status(400).json({ error: 'Missing url' });
 
-  // validate URL
   try { new URL(url); } catch {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
   let browser;
   try {
+    const executablePath = await chromium.executablePath();
+
     browser = await puppeteer.launch({
-      args:            chromium.args,
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+      ],
       defaultViewport: chromium.defaultViewport,
-      executablePath:  await chromium.executablePath(),
-      headless:        chromium.headless,
+      executablePath: executablePath,
+      headless: 'new',
+      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
 
-    // ปิด resource ที่ไม่จำเป็นเพื่อให้เร็วขึ้น
     await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const type = req.resourceType();
-      if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
-        req.abort();
+    page.on('request', (r) => {
+      if (['image', 'stylesheet', 'font', 'media'].includes(r.resourceType())) {
+        r.abort();
       } else {
-        req.continue();
+        r.continue();
       }
     });
 
@@ -42,55 +48,36 @@ module.exports = async function handler(req, res) {
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
 
-    // รอให้ JS render เสร็จ
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
 
-    // ดึง meta tags หลัง JS render แล้ว
     const meta = await page.evaluate(() => {
-      const getMeta = (prop) =>
+      const get = (prop) =>
         document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') ||
-        document.querySelector(`meta[name="${prop}"]`)?.getAttribute('content') ||
-        '';
+        document.querySelector(`meta[name="${prop}"]`)?.getAttribute('content') || '';
 
-      // ดึงวันที่จากหลาย source
-      const pubRaw =
-        getMeta('article:published_time') ||
-        getMeta('og:article:published_time') ||
-        getMeta('datePublished') ||
-        document.querySelector('[data-testid="publish-date"]')?.textContent ||
-        '';
+      const pubRaw = get('article:published_time') ||
+        get('og:article:published_time') ||
+        (() => {
+          let d = '';
+          document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
+            try { const j = JSON.parse(s.textContent); d = d || j.datePublished || ''; } catch {}
+          });
+          return d;
+        })();
 
       let date = '', time = '';
       if (pubRaw) {
         const d = new Date(pubRaw);
         if (!isNaN(d)) {
-          const months = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-          date = `${d.getDate()} ${months[d.getMonth() + 1]} ${d.getFullYear() + 543}`;
-          time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-        }
-      }
-
-      // ดึง JSON-LD เป็น fallback
-      let ldDate = '';
-      document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
-        try {
-          const json = JSON.parse(s.textContent);
-          ldDate = ldDate || json.datePublished || json.uploadDate || '';
-        } catch {}
-      });
-
-      if (!date && ldDate) {
-        const d = new Date(ldDate);
-        if (!isNaN(d)) {
-          const months = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-          date = `${d.getDate()} ${months[d.getMonth() + 1]} ${d.getFullYear() + 543}`;
-          time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+          const m = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+          date = `${d.getDate()} ${m[d.getMonth()+1]} ${d.getFullYear()+543}`;
+          time = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
         }
       }
 
       return {
-        title:     getMeta('og:title') || document.title || '',
-        thumbnail: getMeta('og:image') || '',
+        title:     get('og:title') || document.title || '',
+        thumbnail: get('og:image') || '',
         date,
         time,
       };
@@ -100,13 +87,8 @@ module.exports = async function handler(req, res) {
 
   } catch (err) {
     return res.status(200).json({
-      url,
-      title:     url,
-      thumbnail: '',
-      date:      '',
-      time:      '',
-      ok:        false,
-      error:     err.message,
+      url, title: url, thumbnail: '', date: '', time: '',
+      ok: false, error: err.message,
     });
   } finally {
     if (browser) await browser.close();
