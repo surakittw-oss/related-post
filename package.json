@@ -2,7 +2,7 @@
   "name": "related-posts-generator",
   "version": "1.0.0",
   "dependencies": {
-    "@sparticuz/chromium": "^123.0.0",
-    "puppeteer-core": "^22.0.0"
+    "@sparticuz/chromium": "^131.0.0",
+    "puppeteer-core": "^23.0.0"
   }
 }
