@@ -1,8 +1,0 @@
-{
-  "name": "related-posts-generator",
-  "version": "1.0.0",
-  "dependencies": {
-    "playwright-core": "^1.42.1",
-    "@sparticuz/chromium-min": "^119.0.0"
-  }
-}
